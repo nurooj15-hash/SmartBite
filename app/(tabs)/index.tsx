@@ -1,10 +1,9 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { ScrollView, Pressable, StyleSheet, View } from 'react-native';
 
 import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
@@ -12,208 +11,239 @@ export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [showCamera, setShowCamera] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const cameraRef = useRef<any>(null);
   const [showResults, setShowResults] = useState(false);
 
-  //RESULTS SCREEN
+  const cameraRef = useRef<any>(null);
+
+  // =========================
+  // HANDLERS
+  // =========================
+
+  const handleTakePhoto = async () => {
+    if (!permission?.granted) {
+      await requestPermission();
+    } else {
+      setShowCamera(true);
+    }
+  };
+
+  const handleCapture = async () => {
+    if (cameraRef.current) {
+      const photo = await cameraRef.current.takePictureAsync();
+      setPhotoUri(photo.uri);
+      setShowCamera(false);
+    }
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const reset = () => {
+    setPhotoUri(null);
+    setShowCamera(false);
+    setShowResults(false);
+  };
+
+  // =========================
+  // RESULTS SCREEN
+  // =========================
   if (showResults) {
     return (
-      <ThemedView style={{ flex: 1, padding: 24, justifyContent: 'center' }}>
+      <ThemedView style={styles.center}>
+        <ThemedText type="title">Meal Analysis</ThemedText>
 
-        <ThemedText type="title" style={{ marginBottom: 16 }}>
-          estimated meal info
-        </ThemedText>
-
-        <ThemedText style={{ marginBottom: 8 }}>
-          foods detected:
-        </ThemedText>
-        <ThemedText>• roti</ThemedText>
-        <ThemedText>• dal</ThemedText>
-        <ThemedText>• sabzi</ThemedText>
-
-        <ThemedText style={{ marginTop: 16 }}>
-          estimated calories: ~480 kcal
-        </ThemedText>
-
-        <Pressable
-          onPress={() => {
-            setShowResults(false);
-            setPhotoUri(null);
-          }}
-          style={{
-            marginTop: 24,
-            backgroundColor: '#4CAF50',
-            padding: 12,
-            borderRadius: 8,
-            alignItems: 'center',
-          }}
-        >
-          <ThemedText style={{ color: 'white' }}>
-            Done
+        <ThemedView style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>
+            Foods detected:
           </ThemedText>
-        </Pressable>
+          <ThemedText>• roti</ThemedText>
+          <ThemedText>• dal</ThemedText>
+          <ThemedText>• sabzi</ThemedText>
+        </ThemedView>
 
+        <ThemedView style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>
+            Calories
+          </ThemedText>
+          <ThemedText>~480 kcal</ThemedText>
+        </ThemedView>
+
+        <Pressable style={styles.primaryButton} onPress={reset}>
+          <ThemedText style={styles.buttonText}>Done</ThemedText>
+        </Pressable>
       </ThemedView>
     );
   }
 
-  //PHOTO PREREVIEW SCREEN
+  // =========================
+  // PHOTO PREVIEW
+  // =========================
   if (photoUri) {
     return (
-      <ThemedView style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+      <ThemedView style={styles.center}>
+        <ThemedText type="title">Preview</ThemedText>
 
-        {/*show captured photos*/}
-        <Image
-          source={{ uri: photoUri }}
-          style={{ width: 300, height: 400, borderRadius: 12 }}
-        />
+        <ThemedView style={styles.placeholderBox}>
+          <ThemedText>Photo captured successfully</ThemedText>
+        </ThemedView>
 
-        {/*container for action buttons*/}
-        <ThemedView style={{ flexDirection: 'row', gap: 12, marginTop: 20 }}>
-
-          {/*retake photo: clear current photo and reopen camera*/}
-          <Pressable
-            onPress={() => {
-              setPhotoUri(null);
-              setShowResults(false);
-              setShowCamera(true);
-            }}
-            style={{
-              backgroundColor: '#999',
-              padding: 12,
-              borderRadius: 8,
-            }}
-          >
-            <ThemedText style={{ color: 'white' }}>
-              Retake
-            </ThemedText>
+        <View style={styles.row}>
+          <Pressable style={styles.secondaryButton} onPress={reset}>
+            <ThemedText style={styles.buttonText}>Retake</ThemedText>
           </Pressable>
 
-          {/*confirm photo: placeholder for future analysis step*/}
           <Pressable
+            style={styles.primaryButton}
             onPress={() => {
               setShowResults(true);
               setPhotoUri(null);
-              setShowCamera(false);
-            }}
-            style={{
-              backgroundColor: '#4CAF50',
-              padding: 12,
-              borderRadius: 8,
             }}
           >
-            <ThemedText style={{ color: 'white' }}>
-              Looks good
+            <ThemedText style={styles.buttonText}>
+              Analyze
             </ThemedText>
           </Pressable>
-
-        </ThemedView>
+        </View>
       </ThemedView>
     );
   }
 
-
-
-
-
-  //CAMERA VIEW SCREEN
+  // =========================
+  // CAMERA SCREEN
+  // =========================
   if (showCamera) {
     return (
       <ThemedView style={{ flex: 1 }}>
-        <CameraView
-          ref={cameraRef}
-          style={{ flex: 1 }}
-          facing="back"
-        />
+        <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
 
-        <Pressable
-          onPress={async () => {
-            if (cameraRef.current) {
-              const photo = await cameraRef.current.takePictureAsync();
-              setPhotoUri(photo.uri);
-              setShowCamera(false);
-            }
-          }}
-          style={{
-            position: 'absolute',
-            bottom: 40,
-            alignSelf: 'center',
-            backgroundColor: '#4CAF50',
-            padding: 16,
-            borderRadius: 30,
-          }}
-        >
-          <ThemedText style={{ color: 'white', fontSize: 16 }}>
-            Capture
-          </ThemedText>
+        <Pressable style={styles.captureButton} onPress={handleCapture}>
+          <ThemedText style={styles.buttonText}>Capture</ThemedText>
         </Pressable>
       </ThemedView>
     );
   }
 
-
-
+  // =========================
+  // HOME SCREEN
+  // =========================
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }
-    >
+    <ScrollView contentContainerStyle={styles.container}>
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">SmartBite</ThemedText>
         <HelloWave />
       </ThemedView>
 
-      <ThemedView style={{ marginTop: 20 }}>
-        <Pressable
-          onPress={async () => {
-            if (!permission?.granted) {
-              await requestPermission();
-            } else {
-              setShowCamera(true);
-            }
-          }}
-          style={{
-            padding: 12,
-            backgroundColor: '#4CAF50',
-            borderRadius: 8,
-          }}
-        >
+      <ThemedText style={styles.subtitle}>
+        Take or upload a photo to analyze your meal
+      </ThemedText>
 
-          <ThemedText
-            style={{
-              color: 'white',
-              textAlign: 'center',
-            }}
-          >
-            Take a photo
-          </ThemedText>
+      <View style={styles.row}>
+        <Pressable style={styles.primaryButton} onPress={handleTakePhoto}>
+          <ThemedText style={styles.buttonText}>Take Photo</ThemedText>
         </Pressable>
-      </ThemedView>
-    </ParallaxScrollView>
+
+        <Pressable style={styles.secondaryButton} onPress={pickImage}>
+          <ThemedText style={styles.buttonText}>Upload</ThemedText>
+        </Pressable>
+      </View>
+    </ScrollView>
   );
 }
 
-
+// =========================
+// STYLES
+// =========================
 const styles = StyleSheet.create({
+  container: {
+    padding: 20,
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    marginBottom: 10,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+
+  subtitle: {
+    textAlign: 'center',
+    marginBottom: 20,
+    opacity: 0.7,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+
+  row: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 20,
+  },
+
+  card: {
+    width: '100%',
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#f2f2f2',
+    marginTop: 12,
+  },
+
+  sectionTitle: {
+    fontWeight: 'bold',
+    marginBottom: 6,
+  },
+
+  placeholderBox: {
+    width: 300,
+    height: 200,
+    backgroundColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+    marginTop: 20,
+  },
+
+  primaryButton: {
+    flex: 1,
+    backgroundColor: '#4CAF50',
+    padding: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+
+  secondaryButton: {
+    flex: 1,
+    backgroundColor: '#2196F3',
+    padding: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+
+  captureButton: {
     position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    backgroundColor: '#4CAF50',
+    padding: 18,
+    borderRadius: 40,
+  },
+
+  buttonText: {
+    color: 'white',
+    fontWeight: '600',
   },
 });
