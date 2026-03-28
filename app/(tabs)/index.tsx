@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   greetingText: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#2d2d2d',
+    color: Colors.brown,
   },
 
   greetingSubtext: {
@@ -327,7 +327,7 @@ const styles = StyleSheet.create({
   },
 
   secondaryButton: {
-    backgroundColor: '#f0ede8',
+    backgroundColor: Colors.blue,
     paddingVertical: 12,
     paddingHorizontal: 10,
     borderRadius: 12,
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   },
 
   secondaryButtonText: {
-    color: Colors.brown,
+    color: 'white',
     fontWeight: '600',
     fontSize: 13,
   },
