@@ -1,11 +1,10 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
-import { ScrollView, Pressable, StyleSheet, View } from 'react-native';
+import { ScrollView, Pressable, StyleSheet, View, Image } from 'react-native';
 
-import { HelloWave } from '@/components/hello-wave';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Colors } from '@/constants/theme';
 
 export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -15,16 +14,12 @@ export default function HomeScreen() {
 
   const cameraRef = useRef<any>(null);
 
-  // =========================
-  // HANDLERS
-  // =========================
-
   const handleTakePhoto = async () => {
     if (!permission?.granted) {
       await requestPermission();
-    } else {
-      setShowCamera(true);
+      return;
     }
+    setShowCamera(true);
   };
 
   const handleCapture = async () => {
@@ -40,7 +35,6 @@ export default function HomeScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
     });
-
     if (!result.canceled) {
       setPhotoUri(result.assets[0].uri);
     }
@@ -52,120 +46,115 @@ export default function HomeScreen() {
     setShowResults(false);
   };
 
-  // =========================
-  // RESULTS SCREEN
-  // =========================
+  // 📊 RESULTS SCREEN
   if (showResults) {
     return (
-      <ThemedView style={styles.center}>
+      <View style={styles.center}>
         <ThemedText type="title">Meal Analysis</ThemedText>
-
-        <ThemedView style={styles.card}>
-          <ThemedText style={styles.sectionTitle}>
-            Foods detected:
-          </ThemedText>
+        <View style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>Foods detected:</ThemedText>
           <ThemedText>• roti</ThemedText>
           <ThemedText>• dal</ThemedText>
           <ThemedText>• sabzi</ThemedText>
-        </ThemedView>
-
-        <ThemedView style={styles.card}>
-          <ThemedText style={styles.sectionTitle}>
-            Calories
-          </ThemedText>
+        </View>
+        <View style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>Calories</ThemedText>
           <ThemedText>~480 kcal</ThemedText>
-        </ThemedView>
-
-        <Pressable style={styles.primaryButton} onPress={reset}>
+        </View>
+        <Pressable style={[styles.primaryButton, { marginTop: 20 }]} onPress={reset}>
           <ThemedText style={styles.buttonText}>Done</ThemedText>
         </Pressable>
-      </ThemedView>
+      </View>
     );
   }
 
-  // =========================
-  // PHOTO PREVIEW
-  // =========================
-  if (photoUri) {
-    return (
-      <ThemedView style={styles.center}>
-        <ThemedText type="title">Preview</ThemedText>
-
-        <ThemedView style={styles.placeholderBox}>
-          <ThemedText>Photo captured successfully</ThemedText>
-        </ThemedView>
-
-        <View style={styles.row}>
-          <Pressable style={styles.secondaryButton} onPress={reset}>
-            <ThemedText style={styles.buttonText}>Retake</ThemedText>
-          </Pressable>
-
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => {
-              setShowResults(true);
-              setPhotoUri(null);
-            }}
-          >
-            <ThemedText style={styles.buttonText}>
-              Analyze
-            </ThemedText>
-          </Pressable>
-        </View>
-      </ThemedView>
-    );
-  }
-
-  // =========================
-  // CAMERA SCREEN
-  // =========================
+  // 📸 CAMERA SCREEN
   if (showCamera) {
     return (
-      <ThemedView style={{ flex: 1 }}>
+      <View style={styles.container}>
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
-
         <Pressable style={styles.captureButton} onPress={handleCapture}>
           <ThemedText style={styles.buttonText}>Capture</ThemedText>
         </Pressable>
-      </ThemedView>
+      </View>
     );
   }
 
-  // =========================
-  // HOME SCREEN
-  // =========================
+  // 🏠 HOME SCREEN
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">SmartBite</ThemedText>
-        <HelloWave />
-      </ThemedView>
+    <View style={styles.screen}>
 
-      <ThemedText style={styles.subtitle}>
-        Take or upload a photo to analyze your meal
-      </ThemedText>
-
-      <View style={styles.row}>
-        <Pressable style={styles.primaryButton} onPress={handleTakePhoto}>
-          <ThemedText style={styles.buttonText}>Take Photo</ThemedText>
-        </Pressable>
-
-        <Pressable style={styles.secondaryButton} onPress={pickImage}>
-          <ThemedText style={styles.buttonText}>Upload</ThemedText>
-        </Pressable>
+      {/* HEADER */}
+      <View style={styles.header}>
+        <View style={styles.headerLinks}>
+          <ThemedText style={styles.headerText}>Home</ThemedText>
+          <ThemedText style={styles.headerText}>About Us</ThemedText>
+        </View>
       </View>
-    </ScrollView>
+
+      <ScrollView contentContainerStyle={styles.container}>
+
+        {/* ROW: info box + photo card side by side */}
+        <View style={styles.mainRow}>
+
+          {/* LEFT: info box */}
+          <View style={styles.infoBox}>
+            <ThemedText style={styles.subtitle}>
+              Take or upload a photo to analyze your meal
+            </ThemedText>
+          </View>
+
+          {/* RIGHT: photo card */}
+          <View style={styles.photoCard}>
+
+            {/* Left of card: preview */}
+            <Pressable style={styles.previewPlaceholder} onPress={pickImage}>
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.previewImage} />
+              ) : (
+                <ThemedText style={styles.previewLabel}>IMAGE PREVIEW</ThemedText>
+              )}
+            </Pressable>
+
+            {/* Right of card: buttons */}
+            <View style={styles.buttonColumn}>
+              <Pressable style={styles.primaryButton} onPress={handleTakePhoto}>
+                <ThemedText style={styles.buttonText}>Take Photo</ThemedText>
+              </Pressable>
+
+              <Pressable style={styles.primaryButton} onPress={pickImage}>
+                <ThemedText style={styles.buttonText}>Upload Photo</ThemedText>
+              </Pressable>
+
+              {photoUri && (
+                <Pressable
+                  style={[styles.submitButton, { marginTop: 16 }]}
+                  onPress={() => setShowResults(true)}
+                >
+                  <ThemedText style={styles.buttonText}>Submit</ThemedText>
+                </Pressable>
+              )}
+            </View>
+
+          </View>
+
+        </View>
+
+      </ScrollView>
+    </View>
   );
 }
 
-// =========================
-// STYLES
-// =========================
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: Colors.lightblue,
+  },
+
   container: {
-    padding: 20,
     flexGrow: 1,
-    justifyContent: 'center',
+    padding: 20,
+    backgroundColor: Colors.lightblue,
   },
 
   center: {
@@ -173,32 +162,109 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
+    backgroundColor: Colors.lightblue,
   },
 
-  titleContainer: {
-    flexDirection: 'row',
+  header: {
+    width: '100%',
+    paddingTop: 50,
+    paddingBottom: 15,
+    backgroundColor: Colors.brown,
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 10,
+  },
+
+  headerLinks: {
+    flexDirection: 'row',
+    gap: 30,
+  },
+
+  headerText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // New: outer row that holds info box + photo card
+  mainRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 20,
+    alignItems: 'flex-start',
+  },
+
+  infoBox: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: Colors.lightbrown,
+    justifyContent: 'center',
   },
 
   subtitle: {
     textAlign: 'center',
-    marginBottom: 20,
     opacity: 0.7,
   },
 
-  row: {
+  photoCard: {
+    flex: 2,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.blue,
     flexDirection: 'row',
     gap: 12,
-    marginTop: 20,
+    alignItems: 'center',
+  },
+
+  previewPlaceholder: {
+    width: '60%',
+    height: 300,
+    backgroundColor: '#d9d9d9',
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+
+  previewImage: {
+    width: '100%',
+    height: '100%',
+  },
+
+  previewLabel: {
+    color: '#555',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+
+  buttonColumn: {
+    flex: 1,
+    gap: 12,
+  },
+
+  primaryButton: {
+    backgroundColor: Colors.red,
+    padding: 12,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    margin: 10,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+  },
+
+  submitButton: {
+    backgroundColor: Colors.brown,
+    padding: 12,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    alignItems: 'center',
+    alignSelf: 'stretch',
   },
 
   card: {
     width: '100%',
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: Colors.lightbrown,
     marginTop: 12,
   },
 
@@ -207,39 +273,14 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
 
-  placeholderBox: {
-    width: 300,
-    height: 200,
-    backgroundColor: '#eee',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 12,
-    marginTop: 20,
-  },
-
-  primaryButton: {
-    flex: 1,
-    backgroundColor: '#4CAF50',
-    padding: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: '#2196F3',
-    padding: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-
   captureButton: {
     position: 'absolute',
     bottom: 40,
     alignSelf: 'center',
-    backgroundColor: '#4CAF50',
+    backgroundColor: Colors.red,
     padding: 18,
     borderRadius: 40,
+    zIndex: 10,
   },
 
   buttonText: {
