@@ -2,6 +2,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Image,
   Pressable,
   ScrollView,
@@ -22,69 +23,100 @@ export default function HomeScreen() {
   const [showResults, setShowResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [aiResult, setAiResult] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   const cameraRef = useRef<any>(null);
 
   const handleTakePhoto = async () => {
     if (!permission?.granted) {
-      await requestPermission();
-      return;
+      const res = await requestPermission();
+      if (!res.granted) return;
     }
     setShowCamera(true);
   };
 
   const handleCapture = async () => {
-    if (cameraRef.current) {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true });
+    try {
+      if (!cameraRef.current) return;
+
+      const photo = await cameraRef.current.takePictureAsync({
+        base64: true,
+        quality: 0.7,
+      });
+
       setPhotoUri(photo.uri);
       setShowCamera(false);
+
+      await analyzeImage(photo.base64);
+    } catch (error) {
+      console.log('CAPTURE ERROR:', error);
+      setAiResult('Failed to capture photo.');
+      setShowResults(true);
     }
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      base64: true,
-      quality: 0.7,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        base64: true,
+        quality: 0.7,
+      });
 
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      setPhotoUri(asset.uri);
-      analyzeImage(asset.base64);
+      if (!result.canceled) {
+        const asset = result.assets[0];
+        setPhotoUri(asset.uri);
+        await analyzeImage(asset.base64);
+      }
+    } catch (error) {
+      console.log('PICKER ERROR:', error);
+      setAiResult('Failed to select image.');
+      setShowResults(true);
     }
   };
 
   const analyzeImage = async (base64: string | undefined) => {
     if (!base64) {
-      setAiResult("No image data found.");
+      setAiResult('No image data found.');
+      setShowResults(true);
+      return;
+    }
+
+    if (!OPENAI_KEY) {
+      setAiResult('Missing OpenAI API key.');
       setShowResults(true);
       return;
     }
 
     try {
-      const response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
+      setIsAnalyzing(true);
+      setShowResults(true);
+      setAiResult(null);
+
+      const imageDataUrl = `data:image/jpeg;base64,${base64}`;
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_KEY}`,
         },
         body: JSON.stringify({
-          model: "gpt-4o",
+          model: 'gpt-4o',
           input: [
             {
-              role: "user",
+              role: 'user',
               content: [
                 {
-                  type: "input_text",
+                  type: 'input_text',
                   text: `
 You are SmartBite AI with multi-agent orchestration.
 
 Vision Agent:
-- Identify all foods in the image.
+- Identify all visible foods and drinks in the image.
 
 Nutrition Agent:
-- Estimate calories and macronutrients.
+- Estimate calories, carbs, protein, fat, and fiber.
 
 Cultural Intelligence Agent:
 - Recognize cuisine type if possible.
@@ -92,12 +124,20 @@ Cultural Intelligence Agent:
 Health Coaching Agent:
 - Suggest one improvement for someone managing blood sugar.
 
-Return results clearly formatted.
-`
+Rules:
+- Be concise but clear.
+- If uncertain, say so.
+- Return plain text only with these section headers:
+
+Foods Detected
+Nutrition Estimate
+Cuisine
+Blood Sugar Tip
+`,
                 },
                 {
-                  type: "input_image",
-                  image_base64: base64,
+                  type: 'input_image',
+                  image_url: imageDataUrl,
                 },
               ],
             },
@@ -106,21 +146,30 @@ Return results clearly formatted.
       });
 
       const data = await response.json();
+      console.log('OPENAI RESPONSE:', JSON.stringify(data, null, 2));
 
-      if (data.output && data.output[0]?.content) {
-        const textBlock = data.output[0].content.find(
-          (item: any) => item.type === "output_text"
-        );
-        setAiResult(textBlock?.text || "No AI response received.");
-      } else {
-        setAiResult("No AI response received.");
+      if (!response.ok) {
+        const message =
+          data?.error?.message ||
+          `OpenAI request failed with status ${response.status}.`;
+        setAiResult(message);
+        return;
       }
 
-      setShowResults(true);
+      const text =
+        data.output_text ||
+        data.output
+          ?.flatMap((item: any) => item.content || [])
+          ?.find((item: any) => item.type === 'output_text')
+          ?.text ||
+        null;
 
-    } catch (error) {
-      console.log("AI ERROR:", error);
-      setAiResult("Error analyzing image.");
+      setAiResult(text || 'No AI response received.');
+    } catch (error: any) {
+      console.log('AI ERROR:', error);
+      setAiResult(error?.message || 'Error analyzing image.');
+    } finally {
+      setIsAnalyzing(false);
       setShowResults(true);
     }
   };
@@ -130,34 +179,53 @@ Return results clearly formatted.
     setShowCamera(false);
     setShowResults(false);
     setAiResult(null);
+    setIsAnalyzing(false);
   };
 
-  // =========================
-  // RESULTS SCREEN
-  // =========================
   if (showResults) {
     return (
       <View style={styles.screen}>
         <View style={styles.header}>
           <ThemedText style={styles.headerTitle}>SmartBite</ThemedText>
         </View>
+
         <View style={styles.center}>
           <ThemedText type="title" style={{ color: Colors.brown }}>
             Meal Analysis
           </ThemedText>
 
-          <View style={styles.card}>
-            <ThemedText style={styles.sectionTitle}>
-              AI Analysis
-            </ThemedText>
+          {photoUri ? (
+            <View style={[styles.card, { marginBottom: 12 }]}>
+              <Image source={{ uri: photoUri }} style={styles.resultImage} />
+            </View>
+          ) : null}
 
-            <ThemedText>
-              {aiResult ? aiResult : "Analyzing..."}
-            </ThemedText>
+          <View style={styles.card}>
+            <ThemedText style={styles.sectionTitle}>AI Analysis</ThemedText>
+
+            {isAnalyzing ? (
+              <View style={styles.loadingWrap}>
+                <ActivityIndicator size="large" color={Colors.brown} />
+                <ThemedText style={{ marginTop: 10 }}>
+                  Analyzing your meal...
+                </ThemedText>
+              </View>
+            ) : (
+              <ThemedText>
+                {aiResult ? aiResult : 'No AI response received.'}
+              </ThemedText>
+            )}
           </View>
 
           <Pressable
-            style={[styles.primaryButton, { marginTop: 20, alignSelf: 'center', paddingHorizontal: 40 }]}
+            style={[
+              styles.primaryButton,
+              {
+                marginTop: 20,
+                alignSelf: 'center',
+                paddingHorizontal: 40,
+              },
+            ]}
             onPress={reset}
           >
             <ThemedText style={styles.buttonText}>Done</ThemedText>
@@ -167,9 +235,6 @@ Return results clearly formatted.
     );
   }
 
-  // =========================
-  // CAMERA SCREEN
-  // =========================
   if (showCamera) {
     return (
       <View style={styles.screen}>
@@ -181,20 +246,22 @@ Return results clearly formatted.
     );
   }
 
-  // =========================
-  // HOME SCREEN
-  // =========================
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
         <ThemedText style={styles.headerTitle}>SmartBite</ThemedText>
       </View>
 
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.greetingRow}>
           <View>
             <ThemedText style={styles.greetingText}>Welcome!</ThemedText>
-            <ThemedText style={styles.greetingSubtext}>What did you eat today?</ThemedText>
+            <ThemedText style={styles.greetingSubtext}>
+              What did you eat today?
+            </ThemedText>
           </View>
         </View>
 
@@ -209,7 +276,9 @@ Return results clearly formatted.
         </View>
 
         <View style={styles.infoCard}>
-          <ThemedText style={styles.infoCardTitle}>Analyze your meal</ThemedText>
+          <ThemedText style={styles.infoCardTitle}>
+            Analyze your meal
+          </ThemedText>
           <ThemedText style={styles.infoCardSubtext}>
             Take or upload a photo to get instant nutritional info
           </ThemedText>
@@ -221,7 +290,9 @@ Return results clearly formatted.
               <Image source={{ uri: photoUri }} style={styles.previewImage} />
             ) : (
               <View style={styles.previewInner}>
-                <ThemedText style={styles.previewLabel}>Tap to select image</ThemedText>
+                <ThemedText style={styles.previewLabel}>
+                  Tap to select image
+                </ThemedText>
               </View>
             )}
           </Pressable>
@@ -232,7 +303,9 @@ Return results clearly formatted.
             </Pressable>
 
             <Pressable style={styles.secondaryButton} onPress={pickImage}>
-              <ThemedText style={styles.secondaryButtonText}>Upload Photo</ThemedText>
+              <ThemedText style={styles.secondaryButtonText}>
+                Upload Photo
+              </ThemedText>
             </Pressable>
           </View>
         </View>
@@ -240,6 +313,7 @@ Return results clearly formatted.
     </View>
   );
 }
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -357,6 +431,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  resultImage: {
+    width: '100%',
+    height: 260,
+    borderRadius: 12,
+  },
   buttonColumn: {
     flex: 1,
     gap: 10,
@@ -384,19 +463,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 13,
-  },
-  submitButton: {
-    backgroundColor: Colors.brown,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 6,
-    shadowColor: Colors.brown,
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
   },
   buttonText: {
     color: 'white',
@@ -434,5 +500,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 8,
     elevation: 5,
+  },
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
   },
 });
