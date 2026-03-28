@@ -164,7 +164,7 @@ export default function HomeScreen() {
       }
     >
       <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Calorie App!!!!!</ThemedText>
+        <ThemedText type="title">SmartBite</ThemedText>
         <HelloWave />
       </ThemedView>
 
