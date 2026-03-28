@@ -20,6 +20,7 @@ export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [showCamera, setShowCamera] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [aiResult, setAiResult] = useState<string | null>(null);
@@ -35,25 +36,23 @@ export default function HomeScreen() {
     setShowCamera(true);
   };
 
+  // Just captures and stores — does NOT analyze yet
   const handleCapture = async () => {
     try {
       if (!cameraRef.current) return;
-
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
         quality: 0.7,
       });
-
       setPhotoUri(photo.uri);
+      setPhotoBase64(photo.base64 ?? null);
       setShowCamera(false);
-      await analyzeImage(photo.base64);
     } catch (error) {
       console.log('CAPTURE ERROR:', error);
-      setAiResult('Failed to capture photo.');
-      setShowResults(true);
     }
   };
 
+  // Just selects and stores — does NOT analyze yet
   const pickImage = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -61,22 +60,20 @@ export default function HomeScreen() {
         base64: true,
         quality: 0.7,
       });
-
       if (!result.canceled) {
         const asset = result.assets[0];
         setPhotoUri(asset.uri);
-        await analyzeImage(asset.base64);
+        setPhotoBase64(asset.base64 ?? null);
       }
     } catch (error) {
       console.log('PICKER ERROR:', error);
-      setAiResult('Failed to select image.');
-      setShowResults(true);
     }
   };
 
-  const analyzeImage = async (base64: string | undefined) => {
-    if (!base64) {
-      setAiResult('No image data found.');
+  // Called only when user taps "Analyze Meal"
+  const handleAnalyze = async () => {
+    if (!photoBase64) {
+      setAiResult('No image data found. Please try again.');
       setShowResults(true);
       return;
     }
@@ -87,12 +84,12 @@ export default function HomeScreen() {
       return;
     }
 
-    try {
-      setIsAnalyzing(true);
-      setShowResults(true);
-      setAiResult(null);
+    setIsAnalyzing(true);
+    setShowResults(true);
+    setAiResult(null);
 
-      const imageDataUrl = `data:image/jpeg;base64,${base64}`;
+    try {
+      const imageDataUrl = `data:image/jpeg;base64,${photoBase64}`;
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -115,16 +112,16 @@ Foods Detected:
 - list each food item you can see
 
 Estimated Calories:
-— total estimated calories for the meal
+- total estimated calories for the meal
 
 Macronutrients:
-— rough estimates for protein, carbs, and fat
+- rough estimates for protein, carbs, and fat
 
 Cuisine Type:
 - recognize the cuisine (e.g. Italian, Mexican) if possible
 
 Health Tip:
-— at least one brief tip for someone managing blood sugar
+- at least one brief tip for someone managing blood sugar
 
 Be concise and friendly.`,
                 },
@@ -145,10 +142,10 @@ Be concise and friendly.`,
       console.log('OPENAI RESPONSE:', JSON.stringify(data, null, 2));
 
       if (!response.ok) {
-        const message =
+        setAiResult(
           data?.error?.message ||
-          `OpenAI request failed with status ${response.status}.`;
-        setAiResult(message);
+          `OpenAI request failed with status ${response.status}.`
+        );
         return;
       }
 
@@ -159,12 +156,12 @@ Be concise and friendly.`,
       setAiResult(error?.message || 'Error analyzing image.');
     } finally {
       setIsAnalyzing(false);
-      setShowResults(true);
     }
   };
 
   const reset = () => {
     setPhotoUri(null);
+    setPhotoBase64(null);
     setShowCamera(false);
     setShowResults(false);
     setAiResult(null);
@@ -212,15 +209,17 @@ Be concise and friendly.`,
             )}
           </View>
 
-          <Pressable
-            style={[
-              styles.primaryButton,
-              { marginTop: 20, alignSelf: 'center', paddingHorizontal: 40 },
-            ]}
-            onPress={reset}
-          >
-            <ThemedText style={styles.buttonText}>Done</ThemedText>
-          </Pressable>
+          {!isAnalyzing && (
+            <Pressable
+              style={[
+                styles.primaryButton,
+                { marginTop: 20, alignSelf: 'center', paddingHorizontal: 40 },
+              ]}
+              onPress={reset}
+            >
+              <ThemedText style={styles.buttonText}>Done</ThemedText>
+            </Pressable>
+          )}
         </ScrollView>
       </View>
     );
@@ -305,6 +304,15 @@ Be concise and friendly.`,
                 Upload Photo
               </ThemedText>
             </Pressable>
+
+            {/* Analyze button — only shows once a photo is selected */}
+            {photoUri && (
+              <Pressable style={styles.submitButton} onPress={handleAnalyze}>
+                <ThemedText style={styles.buttonText}>
+                  Analyze Meal →
+                </ThemedText>
+              </Pressable>
+            )}
           </View>
         </View>
       </ScrollView>
@@ -462,6 +470,19 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 13,
+  },
+  submitButton: {
+    backgroundColor: Colors.brown,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 6,
+    shadowColor: Colors.brown,
+    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 3,
   },
   buttonText: {
     color: 'white',
