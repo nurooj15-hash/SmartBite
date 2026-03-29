@@ -1,25 +1,100 @@
-SmartBite uses a structured, multi-stage reasoning approach to analyze food images within a single AI call:
+# SmartBite
 
-Image Analysis
-The uploaded image is processed using a multimodal AI model to identify visible food items and key visual signals.
+SmartBite is a mobile app that analyzes meal photos and returns nutritional information and health guidance using AI. Users take or upload a photo of their meal, select a health goal, and receive a structured analysis in seconds — no manual food entry required.
 
-Contextual Food Inference
-Rather than simple classification, the system infers likely components of the dish — including ingredients that may not be directly visible — using contextual and cultural reasoning.
+---
 
-Nutritional Estimation
-The AI estimates calories and macronutrients (protein, carbs, fat) based on inferred components and preparation cues.
+## What It Does
 
-Cultural Context Recognition
-The system identifies the likely cuisine and preparation style, enabling more accurate interpretation of mixed and global dishes.
+1. User takes a photo with the camera or selects one from their photo library
+2. User selects a health goal from four options: blood sugar management, general wellness, high protein, or weight balance
+3. User taps **Analyze Meal**
+4. The app sends the image to the backend, which calls the OpenAI GPT-4o API
+5. The app displays a structured result with five sections:
+   - Foods detected
+   - Nutrition estimate (calories, carbs, protein, fat, fiber)
+   - Cuisine type
+   - Health tip tailored to the selected goal
+   - Confidence note
 
-Behavioral Guidance
-A culturally relevant health tip is generated based on the meal and its nutritional profile, helping users take actionable steps.
+---
 
-Response Structuring
-Outputs are formatted into clean, user-friendly sections for display in the app.
+## Tech Stack
 
-Core Innovation
-SmartBite reframes food analysis as an inference problem rather than a recognition problem, allowing it to understand complex, home-cooked, and culturally diverse meals that traditional database-driven systems cannot handle.
+**Frontend**
+- React Native with Expo
+- `expo-camera` — live camera capture
+- `expo-image-picker` — photo library selection
+- `expo-image-manipulator` — resizes images to 1024px wide and compresses to JPEG at 0.5 quality before sending
+- TypeScript — the AI response is typed as a `MealAnalysis` object
 
-Architecture Note (MVP)
-All reasoning stages are executed within a single GPT-4o API call using structured prompting. This design prioritizes speed, reliability, and simplicity, while allowing future decomposition into independent services.
+**Backend**
+- Node.js with Express
+- `/analyze-meal` — receives the image and selected goal, calls the OpenAI API, returns structured JSON
+- `/health` — health check endpoint
+
+**AI**
+- OpenAI GPT-4o via the Responses API
+- The prompt instructs the model to return only valid JSON matching the `MealAnalysis` schema
+- The selected health goal is passed into the prompt so the health tip is tailored to that goal
+
+---
+
+## MealAnalysis Response Shape
+```typescript
+type MealAnalysis = {
+  foodsDetected: string[];
+  nutritionEstimate: {
+    calories: string;
+    carbs: string;
+    protein: string;
+    fat: string;
+    fiber: string;
+  };
+  cuisine: string;
+  healthTip: string;
+  confidenceNote: string;
+};
+```
+
+---
+
+## Image Preparation
+
+Before sending to the backend, the app uses `expo-image-manipulator` to resize the image to 1024px wide and compress it to JPEG at 50% quality. This reduces payload size and keeps response times low.
+
+---
+
+## Health Goals
+
+Users can select one of four goals before analyzing:
+
+- Blood sugar management
+- General wellness
+- High protein
+- Weight balance
+
+The selected goal is included in the prompt sent to GPT-4o, so the health tip in the response reflects that specific objective.
+
+---
+
+## Error Handling
+
+The app handles the following error cases:
+
+- Camera or photo library permission denied
+- No image selected before tapping Analyze
+- Image preparation failure
+- Network errors during analysis
+- Invalid or unparseable JSON returned from the API
+- Missing API key on the backend
+
+Each case surfaces a readable message to the user on the results screen.
+
+---
+
+## Team
+
+- **Jade** — Backend development and prompt engineering. Built the Express API, the `/analyze-meal` and `/health` endpoints, server-side AI integration, and the structured JSON prompt design.
+- **Urooj** — AI workflow and product logic. Shaped the goal-aware analysis flow and how user intent connects to the AI response.
+- **Christina** — Frontend and UI. Built the React Native screens, camera and upload flow, goal selection, results display, and overall visual design.
