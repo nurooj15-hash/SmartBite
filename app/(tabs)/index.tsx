@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
 import {
@@ -7,7 +8,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
+  Text,
   View,
 } from 'react-native';
 
@@ -16,82 +17,208 @@ import { Colors } from '@/constants/theme';
 
 const OPENAI_KEY = process.env.EXPO_PUBLIC_OPENAI_KEY;
 
+type MealAnalysis = {
+  foodsDetected: string[];
+  nutritionEstimate: {
+    calories: string;
+    carbs: string;
+    protein: string;
+    fat: string;
+    fiber: string;
+  };
+  cuisine: string;
+  healthTip: string;
+  confidenceNote: string;
+};
+
+const goals = [
+  'blood sugar management',
+  'general wellness',
+  'high protein',
+  'weight balance',
+];
+
 export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [showCamera, setShowCamera] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
-  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+  const [capturedBase64, setCapturedBase64] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [aiResult, setAiResult] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<MealAnalysis | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedGoal, setSelectedGoal] = useState(goals[0]);
 
   const cameraRef = useRef<any>(null);
 
-  const handleTakePhoto = async () => {
-    if (!permission?.granted) {
-      const res = await requestPermission();
-      if (!res.granted) return;
-    }
-    setShowCamera(true);
+  const prepareImageForUpload = async (uri: string) => {
+    const manipulated = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1024 } }],
+      {
+        compress: 0.5,
+        format: ImageManipulator.SaveFormat.JPEG,
+        base64: true,
+      }
+    );
+
+    return {
+      uri: manipulated.uri,
+      base64: manipulated.base64 || null,
+    };
   };
 
-  // Just captures and stores — does NOT analyze yet
+  const handleTakePhoto = async () => {
+    try {
+      if (!permission?.granted) {
+        const res = await requestPermission();
+        if (!res.granted) {
+          setErrorMessage('Camera permission was denied.');
+          setShowResults(true);
+          return;
+        }
+      }
+
+      setErrorMessage(null);
+      setShowCamera(true);
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Unable to open camera.');
+      setShowResults(true);
+    }
+  };
+
   const handleCapture = async () => {
     try {
-      if (!cameraRef.current) return;
+      if (!cameraRef.current) {
+        setErrorMessage('Camera is not ready yet.');
+        setShowResults(true);
+        return;
+      }
+
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.7,
+        quality: 0.5,
+        skipProcessing: true,
       });
-      setPhotoUri(photo.uri);
-      setPhotoBase64(photo.base64 ?? null);
+
+      const prepared = await prepareImageForUpload(photo.uri);
+
+      if (!prepared.base64) {
+        setErrorMessage('Could not prepare captured image.');
+        setShowResults(true);
+        return;
+      }
+
+      setPhotoUri(prepared.uri);
+      setCapturedBase64(prepared.base64);
+      setAnalysis(null);
+      setErrorMessage(null);
       setShowCamera(false);
-    } catch (error) {
-      console.log('CAPTURE ERROR:', error);
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Failed to capture photo.');
+      setShowResults(true);
     }
   };
 
-  // Just selects and stores — does NOT analyze yet
   const pickImage = async () => {
     try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        base64: true,
-        quality: 0.7,
-      });
-      if (!result.canceled) {
-        const asset = result.assets[0];
-        setPhotoUri(asset.uri);
-        setPhotoBase64(asset.base64 ?? null);
+      const permissionResult =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        setErrorMessage('Photo library permission was denied.');
+        setShowResults(true);
+        return;
       }
-    } catch (error) {
-      console.log('PICKER ERROR:', error);
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        quality: 0.5,
+      });
+
+      if (!result.canceled && result.assets?.length > 0) {
+        const asset = result.assets[0];
+
+        if (!asset.uri) {
+          setErrorMessage('Selected image is missing a file path.');
+          setShowResults(true);
+          return;
+        }
+
+        const prepared = await prepareImageForUpload(asset.uri);
+
+        if (!prepared.base64) {
+          setErrorMessage(
+            'Could not read image data. Try another photo from your library.'
+          );
+          setShowResults(true);
+          return;
+        }
+
+        setPhotoUri(prepared.uri);
+        setCapturedBase64(prepared.base64);
+        setAnalysis(null);
+        setErrorMessage(null);
+      }
+    } catch (error: any) {
+      setErrorMessage(error?.message || 'Failed to select image.');
+      setShowResults(true);
     }
   };
 
-  // Called only when user taps "Analyze Meal"
-  const handleAnalyze = async () => {
-    if (!photoBase64) {
-      setAiResult('No image data found. Please try again.');
+  const analyzeImage = async () => {
+    if (!capturedBase64) {
+      setErrorMessage('Please take or upload a photo before analyzing.');
       setShowResults(true);
       return;
     }
 
     if (!OPENAI_KEY) {
-      setAiResult('Missing OpenAI API key.');
+      setErrorMessage('Missing EXPO_PUBLIC_OPENAI_KEY.');
       setShowResults(true);
       return;
     }
 
-    setIsAnalyzing(true);
-    setShowResults(true);
-    setAiResult(null);
-
     try {
-      const imageDataUrl = `data:image/jpeg;base64,${photoBase64}`;
+      setIsAnalyzing(true);
+      setShowResults(true);
+      setErrorMessage(null);
+      setAnalysis(null);
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      const prompt = `
+You are SmartBite AI.
+
+Analyze the meal image and return ONLY valid JSON.
+Do not include markdown.
+Do not include backticks.
+Do not include any explanation outside the JSON.
+
+Return this exact shape:
+{
+  "foodsDetected": ["string"],
+  "nutritionEstimate": {
+    "calories": "string",
+    "carbs": "string",
+    "protein": "string",
+    "fat": "string",
+    "fiber": "string"
+  },
+  "cuisine": "string",
+  "healthTip": "string",
+  "confidenceNote": "string"
+}
+
+Rules:
+- Identify visible foods and drinks.
+- Estimate calories, carbs, protein, fat, and fiber.
+- Infer cuisine type if possible.
+- Tailor the healthTip to this user goal: ${selectedGoal}.
+- Be concise.
+- If uncertain, say so in confidenceNote.
+- Use ranges when appropriate.
+- Return valid JSON only.
+`;
+
+      const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -99,38 +226,17 @@ export default function HomeScreen() {
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          max_tokens: 600,
-          messages: [
+          input: [
             {
               role: 'user',
               content: [
                 {
-                  type: 'text',
-                  text: `You are SmartBite, a nutrition analysis AI. Analyze this meal photo and return:
-
-Foods Detected:
-- list each food item you can see
-
-Estimated Calories:
-- total estimated calories for the meal
-
-Macronutrients:
-- rough estimates for protein, carbs, and fat
-
-Cuisine Type:
-- recognize the cuisine (e.g. Italian, Mexican) if possible
-
-Health Tip:
-- at least one brief tip for someone managing blood sugar
-
-Be concise and friendly.`,
+                  type: 'input_text',
+                  text: prompt,
                 },
                 {
-                  type: 'image_url',
-                  image_url: {
-                    url: imageDataUrl,
-                    detail: 'low',
-                  },
+                  type: 'input_image',
+                  image_url: `data:image/jpeg;base64,${capturedBase64}`,
                 },
               ],
             },
@@ -138,39 +244,61 @@ Be concise and friendly.`,
         }),
       });
 
-      const data = await response.json();
-      console.log('OPENAI RESPONSE:', JSON.stringify(data, null, 2));
+      const rawText = await response.text();
+
+      let data: any;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        setErrorMessage(`Server returned invalid response: ${rawText}`);
+        return;
+      }
 
       if (!response.ok) {
-        setAiResult(
-          data?.error?.message ||
-          `OpenAI request failed with status ${response.status}.`
+        setErrorMessage(
+          data?.error?.message || data?.error || 'Analysis failed.'
         );
         return;
       }
 
-      const text = data.choices?.[0]?.message?.content ?? null;
-      setAiResult(text || 'No AI response received.');
+      const text =
+        data.output_text ||
+        (data.output || [])
+          .flatMap((item: any) => item.content || [])
+          .find((item: any) => item.type === 'output_text')
+          ?.text ||
+        '';
+
+      let parsed: MealAnalysis | null = null;
+
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        setErrorMessage(`Model returned invalid JSON: ${text}`);
+        return;
+      }
+
+      setAnalysis(parsed);
     } catch (error: any) {
-      console.log('AI ERROR:', error);
-      setAiResult(error?.message || 'Error analyzing image.');
+      setErrorMessage(
+        error?.message || 'Network error during analysis. Please try again.'
+      );
     } finally {
       setIsAnalyzing(false);
+      setShowResults(true);
     }
   };
 
   const reset = () => {
     setPhotoUri(null);
-    setPhotoBase64(null);
+    setCapturedBase64(null);
     setShowCamera(false);
     setShowResults(false);
-    setAiResult(null);
+    setAnalysis(null);
+    setErrorMessage(null);
     setIsAnalyzing(false);
   };
 
-  // =========================
-  // RESULTS SCREEN
-  // =========================
   if (showResults) {
     return (
       <View style={styles.screen}>
@@ -178,10 +306,7 @@ Be concise and friendly.`,
           <ThemedText style={styles.headerTitle}>SmartBite</ThemedText>
         </View>
 
-        <ScrollView
-          contentContainerStyle={styles.center}
-          showsVerticalScrollIndicator={false}
-        >
+        <ScrollView contentContainerStyle={styles.resultsContainer}>
           <ThemedText type="title" style={{ color: Colors.brown }}>
             Meal Analysis
           </ThemedText>
@@ -192,56 +317,119 @@ Be concise and friendly.`,
             </View>
           ) : null}
 
-          <View style={styles.card}>
-            <ThemedText style={styles.sectionTitle}>AI Analysis</ThemedText>
-
-            {isAnalyzing ? (
+          {isAnalyzing ? (
+            <View style={styles.card}>
               <View style={styles.loadingWrap}>
                 <ActivityIndicator size="large" color={Colors.brown} />
                 <ThemedText style={{ marginTop: 10 }}>
                   Analyzing your meal...
                 </ThemedText>
               </View>
-            ) : (
-              <ThemedText>
-                {aiResult ? aiResult : 'No AI response received.'}
-              </ThemedText>
-            )}
-          </View>
+            </View>
+          ) : null}
 
-          {!isAnalyzing && (
-            <Pressable
-              style={[
-                styles.primaryButton,
-                { marginTop: 20, alignSelf: 'center', paddingHorizontal: 40 },
-              ]}
-              onPress={reset}
-            >
-              <ThemedText style={styles.buttonText}>Done</ThemedText>
-            </Pressable>
-          )}
+          {!isAnalyzing && errorMessage ? (
+            <View style={styles.card}>
+              <ThemedText style={styles.sectionTitle}>Error</ThemedText>
+              <ThemedText>{errorMessage}</ThemedText>
+            </View>
+          ) : null}
+
+          {!isAnalyzing && analysis ? (
+            <>
+              <View style={styles.card}>
+                <ThemedText style={styles.sectionTitle}>Foods Detected</ThemedText>
+                {analysis.foodsDetected?.length ? (
+                  analysis.foodsDetected.map((food, index) => (
+                    <Text key={`${food}-${index}`} style={styles.bulletItem}>
+                      • {food}
+                    </Text>
+                  ))
+                ) : (
+                  <ThemedText>No foods detected.</ThemedText>
+                )}
+              </View>
+
+              <View style={styles.card}>
+                <ThemedText style={styles.sectionTitle}>Nutrition Estimate</ThemedText>
+                <Text style={styles.metricRow}>
+                  Calories: {analysis.nutritionEstimate?.calories || 'N/A'}
+                </Text>
+                <Text style={styles.metricRow}>
+                  Carbs: {analysis.nutritionEstimate?.carbs || 'N/A'}
+                </Text>
+                <Text style={styles.metricRow}>
+                  Protein: {analysis.nutritionEstimate?.protein || 'N/A'}
+                </Text>
+                <Text style={styles.metricRow}>
+                  Fat: {analysis.nutritionEstimate?.fat || 'N/A'}
+                </Text>
+                <Text style={styles.metricRow}>
+                  Fiber: {analysis.nutritionEstimate?.fiber || 'N/A'}
+                </Text>
+              </View>
+
+              <View style={styles.card}>
+                <ThemedText style={styles.sectionTitle}>Cuisine</ThemedText>
+                <ThemedText>{analysis.cuisine || 'Unknown'}</ThemedText>
+              </View>
+
+              <View style={styles.card}>
+                <ThemedText style={styles.sectionTitle}>Health Tip</ThemedText>
+                <ThemedText>{analysis.healthTip || 'No tip available.'}</ThemedText>
+              </View>
+
+              <View style={styles.card}>
+                <ThemedText style={styles.sectionTitle}>Confidence Note</ThemedText>
+                <ThemedText>
+                  {analysis.confidenceNote || 'Estimated from visible ingredients only.'}
+                </ThemedText>
+              </View>
+            </>
+          ) : null}
+
+          <Pressable
+            style={[
+              styles.primaryButton,
+              {
+                marginTop: 20,
+                alignSelf: 'center',
+                paddingHorizontal: 40,
+              },
+            ]}
+            onPress={reset}
+          >
+            <ThemedText style={styles.buttonText}>Done</ThemedText>
+          </Pressable>
         </ScrollView>
       </View>
     );
   }
 
-  // =========================
-  // CAMERA SCREEN
-  // =========================
   if (showCamera) {
     return (
       <View style={styles.screen}>
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing="back" />
-        <Pressable style={styles.captureButton} onPress={handleCapture}>
-          <ThemedText style={styles.buttonText}>Capture</ThemedText>
-        </Pressable>
+        <View style={styles.cameraOverlay}>
+          <ThemedText style={styles.cameraHint}>
+            Center the meal in the frame
+          </ThemedText>
+
+          <Pressable style={styles.captureButton} onPress={handleCapture}>
+            <ThemedText style={styles.buttonText}>Capture</ThemedText>
+          </Pressable>
+
+          <Pressable
+            style={styles.cameraCancelButton}
+            onPress={() => setShowCamera(false)}
+          >
+            <ThemedText style={styles.buttonText}>Cancel</ThemedText>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
-  // =========================
-  // HOME SCREEN
-  // =========================
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -261,24 +449,38 @@ Be concise and friendly.`,
           </View>
         </View>
 
-        <View style={styles.searchBar}>
-          <TextInput
-            style={[styles.searchInput, { outline: 'none' } as any]}
-            placeholder="Search foods, meals..."
-            placeholderTextColor="#aaa"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            underlineColorAndroid="transparent"
-          />
-        </View>
-
         <View style={styles.infoCard}>
           <ThemedText style={styles.infoCardTitle}>
             Analyze your meal
           </ThemedText>
           <ThemedText style={styles.infoCardSubtext}>
-            Take or upload a photo to get instant nutritional info
+            Take or upload a photo to get instant nutritional insight
           </ThemedText>
+        </View>
+
+        <View style={styles.card}>
+          <ThemedText style={styles.sectionTitle}>Choose Your Goal</ThemedText>
+          <View style={styles.goalWrap}>
+            {goals.map((goal) => {
+              const isSelected = selectedGoal === goal;
+              return (
+                <Pressable
+                  key={goal}
+                  onPress={() => setSelectedGoal(goal)}
+                  style={[styles.goalChip, isSelected && styles.goalChipSelected]}
+                >
+                  <Text
+                    style={[
+                      styles.goalChipText,
+                      isSelected && styles.goalChipTextSelected,
+                    ]}
+                  >
+                    {goal}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         <View style={styles.uploadCard}>
@@ -305,14 +507,21 @@ Be concise and friendly.`,
               </ThemedText>
             </Pressable>
 
-            {/* Analyze button — only shows once a photo is selected */}
-            {photoUri && (
-              <Pressable style={styles.submitButton} onPress={handleAnalyze}>
-                <ThemedText style={styles.buttonText}>
-                  Analyze Meal →
-                </ThemedText>
-              </Pressable>
-            )}
+            <Pressable
+              style={[
+                styles.primaryButton,
+                {
+                  backgroundColor: capturedBase64 ? Colors.brown : '#c7c7c7',
+                  marginTop: 4,
+                },
+              ]}
+              disabled={!capturedBase64 || isAnalyzing}
+              onPress={analyzeImage}
+            >
+              <ThemedText style={styles.buttonText}>
+                {isAnalyzing ? 'Analyzing...' : 'Analyze Meal'}
+              </ThemedText>
+            </Pressable>
           </View>
         </View>
       </ScrollView>
@@ -330,8 +539,7 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
-  center: {
-    flexGrow: 1,
+  resultsContainer: {
     padding: 20,
     paddingBottom: 40,
   },
@@ -362,25 +570,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#888',
     marginTop: 2,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: '#333',
   },
   infoCard: {
     backgroundColor: Colors.brown,
@@ -415,6 +604,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 12,
     elevation: 3,
+    marginTop: 3,
   },
   previewPlaceholder: {
     width: '50%',
@@ -471,19 +661,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
-  submitButton: {
-    backgroundColor: Colors.brown,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 6,
-    shadowColor: Colors.brown,
-    shadowOpacity: 0.3,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
-  },
   buttonText: {
     color: 'white',
     fontWeight: '600',
@@ -506,24 +683,75 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     color: Colors.brown,
   },
-  captureButton: {
+  loadingWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  metricRow: {
+    fontSize: 15,
+    color: '#333',
+    marginBottom: 6,
+  },
+  bulletItem: {
+    fontSize: 15,
+    color: '#333',
+    marginBottom: 6,
+  },
+  goalWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  goalChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#eee7df',
+  },
+  goalChipSelected: {
+    backgroundColor: Colors.brown,
+  },
+  goalChipText: {
+    color: Colors.brown,
+    fontSize: 13,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  goalChipTextSelected: {
+    color: 'white',
+  },
+  cameraOverlay: {
     position: 'absolute',
-    bottom: 40,
-    alignSelf: 'center',
+    bottom: 30,
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    gap: 12,
+  },
+  cameraHint: {
+    color: 'white',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  captureButton: {
     backgroundColor: Colors.red,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 40,
-    zIndex: 10,
     shadowColor: Colors.red,
     shadowOpacity: 0.4,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 8,
     elevation: 5,
   },
-  loadingWrap: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
+  cameraCancelButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 30,
   },
 });

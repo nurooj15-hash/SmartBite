@@ -1,20 +1,25 @@
-## How AI Works
+SmartBite uses a structured, multi-stage reasoning approach to analyze food images within a single AI call:
 
-SmartBite uses a multi-step AI pipeline to analyze food images:
+Image Analysis
+The uploaded image is processed using a multimodal AI model to identify visible food items and key visual signals.
 
-1. **Image Analysis**
-   - The uploaded image is processed using AI vision models to identify food items and components
+Contextual Food Inference
+Rather than simple classification, the system infers likely components of the dish — including ingredients that may not be directly visible — using contextual and cultural reasoning.
 
-2. **Food Decomposition**
-   - Complex meals are broken down into individual ingredients using structured prompting
+Nutritional Estimation
+The AI estimates calories and macronutrients (protein, carbs, fat) based on inferred components and preparation cues.
 
-3. **Nutritional Estimation**
-   - AI estimates calories and nutritional values based on identified components
+Cultural Context Recognition
+The system identifies the likely cuisine and preparation style, enabling more accurate interpretation of mixed and global dishes.
 
-4. **Cultural Context Generation**
-   - The system generates culturally relevant insights about the dish, including origin and variations
+Behavioral Guidance
+A culturally relevant health tip is generated based on the meal and its nutritional profile, helping users take actionable steps.
 
-5. **Response Structuring**
-   - Outputs are formatted into clean, user-friendly sections for display
+Response Structuring
+Outputs are formatted into clean, user-friendly sections for display in the app.
 
-This multi-step reasoning approach improves accuracy for mixed and global dishes compared to traditional single-step systems.
+Core Innovation
+SmartBite reframes food analysis as an inference problem rather than a recognition problem, allowing it to understand complex, home-cooked, and culturally diverse meals that traditional database-driven systems cannot handle.
+
+Architecture Note (MVP)
+All reasoning stages are executed within a single GPT-4o API call using structured prompting. This design prioritizes speed, reliability, and simplicity, while allowing future decomposition into independent services.
